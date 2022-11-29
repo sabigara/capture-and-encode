@@ -1,0 +1,21 @@
+{
+  "name": "capture-and-encode",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@types/dom-webcodecs": "^0.1.5",
+    "@types/three": "^0.146.0",
+    "typescript": "^4.6.4",
+    "vite": "^3.2.3"
+  },
+  "dependencies": {
+    "mp4box": "^0.5.2",
+    "three": "^0.146.0"
+  }
+}
