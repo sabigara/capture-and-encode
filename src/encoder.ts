@@ -1,4 +1,5 @@
-import MP4Box from "mp4box";
+// @ts-ignore
+import WebMWriter from "./webm-writer";
 
 type Options = {
   framerate: number;
@@ -7,86 +8,57 @@ type Options = {
   duration: number;
 };
 
-const SECOND_IN_MICROSECOND = 1_000_000;
+const SECOND_IN_MICROSECOND = 1000000;
 
 export class Encoder {
   private framerate: number;
   private videoBitrate: number;
-  private keyframeIntervalInSecs = 2;
+  private keyframeIntervalInSecs = 4;
   private canvas: HTMLCanvasElement;
   private videoEncoder: VideoEncoder;
-  private mp4: MP4Box.MP4File;
-  private encodingVideoTrackId: number | null = null;
-  private videoTrackOptions: MP4Box.TrackOptions;
-  private videoSampleOptions: MP4Box.SampleOptions;
-  private currentFrame = 0;
-  private encodedVideoFrameCount = 0;
   private microsecondsPerFrame: number;
+  private webm: typeof WebMWriter;
+  private duration: number;
+  private currentFrame = 0;
 
   constructor({ framerate, videoBitrate, canvas, duration }: Options) {
     this.framerate = framerate;
     this.videoBitrate = videoBitrate;
     this.microsecondsPerFrame = SECOND_IN_MICROSECOND / this.framerate;
     this.canvas = canvas;
-    this.mp4 = MP4Box.createFile();
+    this.duration = duration;
     this.videoEncoder = new VideoEncoder({
       output: this.handleEncodedVideoChunk.bind(this),
       error: (err) => {
         throw err;
       },
     });
-    this.videoTrackOptions = {
-      duration: SECOND_IN_MICROSECOND * duration,
-      timescale: SECOND_IN_MICROSECOND,
-      media_duration: duration * SECOND_IN_MICROSECOND,
-    };
-    this.videoSampleOptions = {
-      duration: SECOND_IN_MICROSECOND / this.framerate,
-      dts: 0,
-      cts: 0,
-      is_sync: false,
-    };
+
+    this.webm = new WebMWriter({
+      fileWriter: null,
+      codec: "VP8",
+      width: this.canvas.width,
+      height: this.canvas.height,
+      frameRate: this.framerate,
+    });
   }
 
-  private async handleEncodedVideoChunk(
-    chunk: EncodedVideoChunk,
-    metadata: EncodedVideoChunkMetadata
-  ) {
-    if (this.encodingVideoTrackId === null) {
-      this.videoTrackOptions.avcDecoderConfigRecord =
-        metadata.decoderConfig?.description;
-      this.encodingVideoTrackId = this.mp4.addTrack(this.videoTrackOptions);
-    }
+  private handleEncodedVideoChunk(chunk: EncodedVideoChunk) {
+    this.webm.addChunk(chunk);
+  }
 
-    const buffer = new ArrayBuffer(chunk.byteLength);
-    chunk.copyTo(buffer);
-
-    this.videoSampleOptions.dts =
-      this.encodedVideoFrameCount * this.microsecondsPerFrame;
-    this.videoSampleOptions.cts =
-      this.encodedVideoFrameCount * this.microsecondsPerFrame;
-    this.videoSampleOptions.is_sync = chunk.type === "key";
-
-    this.mp4.addSample(
-      this.encodingVideoTrackId,
-      buffer,
-      this.videoSampleOptions
-    );
-
-    this.encodedVideoFrameCount++;
+  start() {
+    // noop
   }
 
   async prepare() {
-    this.videoTrackOptions.width = this.canvas.width;
-    this.videoTrackOptions.height = this.canvas.height;
     const config: VideoEncoderConfig = {
-      codec: "avc1.42001F",
+      codec: "vp8",
       width: this.canvas.width,
       height: this.canvas.height,
-      displayWidth: this.canvas.width,
-      displayHeight: this.canvas.height,
       bitrate: this.videoBitrate,
       framerate: this.framerate,
+      bitrateMode: "constant",
     };
     const configResult = await VideoEncoder.isConfigSupported(config);
     if (configResult.supported) {
@@ -96,10 +68,24 @@ export class Encoder {
     }
   }
 
-  async stop() {
+  async complete() {
     await this.videoEncoder.flush();
     this.videoEncoder.close();
-    this.mp4.save(`captured-${Math.floor(Date.now() / 1000)}.mp4`);
+    const blob = await this.webm.complete();
+    this.download(blob);
+  }
+
+  private download(blob: Blob) {
+    const anchor = document.createElement("a");
+    anchor.download = `captured-${Math.floor(Date.now() / 1000)}.webm`;
+    anchor.href = URL.createObjectURL(blob);
+    anchor.click();
+  }
+
+  dispose() {
+    if (this.videoEncoder.state !== "closed") {
+      this.videoEncoder.close();
+    }
   }
 
   async addFrame() {
@@ -115,12 +101,8 @@ export class Encoder {
     frame.close();
     this.currentFrame++;
 
-    if (
-      this.currentFrame >=
-      (this.videoTrackOptions.duration! / SECOND_IN_MICROSECOND) *
-        this.framerate
-    ) {
-      await this.stop();
+    if (this.currentFrame >= this.duration * this.framerate) {
+      await this.complete();
       return true;
     }
 
