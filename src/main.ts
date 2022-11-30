@@ -55,35 +55,37 @@ const encoder = new Encoder({
   videoBitrate: 5_000_000,
 });
 
-await encoder.prepare();
+(async () => {
+  await encoder.prepare();
 
-let recording = false;
+  let recording = false;
 
-async function onFrame() {
-  cubes.forEach((cube, i) => {
-    const speed = 0.01 * (i + 1);
-    cube.rotation.x += speed;
-    cube.rotation.y += speed;
-  });
-  renderer.render(scene, camera);
+  async function onFrame() {
+    cubes.forEach((cube, i) => {
+      const speed = 0.01 * (i + 1);
+      cube.rotation.x += speed;
+      cube.rotation.y += speed;
+    });
+    renderer.render(scene, camera);
 
-  let finished = false;
-  if (recording) {
-    finished = await encoder.addFrame();
-    if (finished) {
-      recording = false;
-      recordBtn.innerText = "Reload to record again";
+    let finished = false;
+    if (recording) {
+      finished = await encoder.addFrame();
+      if (finished) {
+        recording = false;
+        recordBtn.innerText = "Reload to record again";
+      }
+    }
+    if (!recording || !finished) {
+      requestAnimationFrame(onFrame);
     }
   }
-  if (!recording || !finished) {
-    requestAnimationFrame(onFrame);
-  }
-}
 
-recordBtn.addEventListener("click", () => {
-  recording = true;
-  recordBtn.innerText = "Recording...";
-  recordBtn.setAttribute("disabled", "true");
-});
+  recordBtn.addEventListener("click", () => {
+    recording = true;
+    recordBtn.innerText = "Recording...";
+    recordBtn.setAttribute("disabled", "true");
+  });
 
-requestAnimationFrame(onFrame);
+  requestAnimationFrame(onFrame);
+})();
